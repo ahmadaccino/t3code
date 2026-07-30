@@ -117,6 +117,7 @@ interface PiTurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
   readonly items: Array<PiToolItem>;
+  errorMessage?: string;
 }
 
 interface PendingApproval {
@@ -507,6 +508,17 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
           return;
         }
 
+        case "message_end": {
+          if (
+            context.turnState &&
+            event.message.role === "assistant" &&
+            event.message.stopReason === "error"
+          ) {
+            context.turnState.errorMessage = event.message.errorMessage ?? "Pi request failed.";
+          }
+          return;
+        }
+
         case "turn_end": {
           // agent_end drives completion, not turn_end (pi runs many internal turns per prompt)
           return;
@@ -517,7 +529,11 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
           // finalize only on the terminal end, since a retry isn't a user interrupt
           if (event.willRetry) return;
           if (context.turnState) {
-            yield* completeTurn(context, "completed");
+            yield* completeTurn(
+              context,
+              context.turnState.errorMessage ? "failed" : "completed",
+              context.turnState.errorMessage,
+            );
           }
           return;
         }

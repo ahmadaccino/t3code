@@ -187,6 +187,43 @@ it.layer(HarnessLayer)("PiAdapter integration", (it) => {
     }),
   );
 
+  it.effect("surfaces Pi assistant errors as failed turns", () =>
+    Effect.gen(function* () {
+      const { adapter, fake } = yield* makePiAdapterForTest(enabledSettings());
+      const threadId = ThreadId.make("pi-int-assistant-error");
+      const collected = yield* collectEvents(
+        adapter,
+        threadId,
+        (event) => event.type === "turn.completed",
+      );
+      yield* adapter.startSession({
+        threadId,
+        provider: PI,
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
+      yield* fake.pushEvent({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "authentication failed",
+        },
+      } as AgentSessionEvent);
+      yield* fake.pushEvent({ type: "agent_end" } as AgentSessionEvent);
+
+      const events = yield* Fiber.join(collected.fiber).pipe(
+        Effect.flatMap(() => Ref.get(collected.store)),
+      );
+      const completed = events.find((event) => event.type === "turn.completed");
+      expect(completed?.payload).toEqual({
+        state: "failed",
+        errorMessage: "authentication failed",
+      });
+    }),
+  );
+
   it.effect("maps thinking_delta to a reasoning_text content delta", () =>
     Effect.gen(function* () {
       const { adapter, fake } = yield* makePiAdapterForTest(enabledSettings());
